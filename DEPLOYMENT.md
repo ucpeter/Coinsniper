@@ -16,7 +16,8 @@ platform-specific steps for both Vercel and Render.
 | Variable | Required? | What it does |
 |---|---|---|
 | `DATABASE_URL` | **Yes** | Postgres connection string. The app throws on startup without it. |
-| `SOLANA_RPC_URL` | No | Your RPC provider's URL (Helius, QuickNode, etc.). Falls back to the public `https://api.mainnet-beta.solana.com`, which is heavily rate-limited — fine for a quick look, not for live trading. |
+| `SOLANA_RPC_URL` | No | Your RPC provider's URL (Helius, QuickNode, Alchemy, etc.). Falls back to the public `https://api.mainnet-beta.solana.com`, which is heavily rate-limited — fine for a quick look, not for live trading. |
+| `SOLANA_RPC_URL_FALLBACK` | No | A second RPC URL, tried automatically if the primary times out or errors. Every read (balances, blockhash, confirmations) and the default send channel go through this chain: primary → this fallback (if set) → the public RPC as a last resort. |
 | `HELIUS_SENDER_ENABLED` | No | Set to `true` to route buy/sell submissions through Helius's Sender endpoint (adds a ~0.001 SOL Jito tip per transaction). No API key needed for Sender itself. |
 | `QUICKNODE_FASTLANE_URL` | No | Your QuickNode endpoint URL, once you've installed the Transaction Fastlane add-on on it. Only takes effect if set. |
 | `QUICKNODE_FASTLANE_TIP_ADDRESS` | Only if the above is set | The tip address QuickNode's dashboard shows you after installing Fastlane. This isn't something to guess — pull it from your own dashboard. |
