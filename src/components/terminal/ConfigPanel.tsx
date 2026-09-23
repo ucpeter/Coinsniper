@@ -25,6 +25,11 @@ const inputClass =
 
 export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Props) {
   const num = (v: string) => (v === "" ? 0 : Number(v));
+  // A numeric field whose value is 0 shows as an empty box instead of a
+  // literal "0" — so typing a number means just typing, not deleting a
+  // zero first. Clearing the box all the way back out still saves as 0,
+  // same as before; this only changes what's displayed while at rest.
+  const displayVal = (v: number) => (v === 0 ? "" : v);
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -47,8 +52,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
             className={inputClass}
             type="number"
             step="0.001"
+            placeholder="0"
             disabled={disabled}
-            value={config.minAmountSol}
+            value={displayVal(config.minAmountSol)}
             onChange={(e) => onChange({ minAmountSol: num(e.target.value) })}
           />
         </Field>
@@ -57,8 +63,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
             className={inputClass}
             type="number"
             step="0.001"
+            placeholder="0"
             disabled={disabled}
-            value={config.maxAmountSol}
+            value={displayVal(config.maxAmountSol)}
             onChange={(e) => onChange({ maxAmountSol: num(e.target.value) })}
           />
         </Field>
@@ -66,8 +73,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.slippagePct}
+            value={displayVal(config.slippagePct)}
             onChange={(e) => onChange({ slippagePct: num(e.target.value) })}
           />
         </Field>
@@ -76,8 +84,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
             className={inputClass}
             type="number"
             step="0.0001"
+            placeholder="0"
             disabled={disabled}
-            value={config.priorityFeeSol}
+            value={displayVal(config.priorityFeeSol)}
             onChange={(e) => onChange({ priorityFeeSol: num(e.target.value) })}
           />
         </Field>
@@ -85,8 +94,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.takeProfitPct}
+            value={displayVal(config.takeProfitPct)}
             onChange={(e) => onChange({ takeProfitPct: num(e.target.value) })}
           />
         </Field>
@@ -94,8 +104,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.stopLossPct}
+            value={displayVal(config.stopLossPct)}
             onChange={(e) => onChange({ stopLossPct: num(e.target.value) })}
           />
         </Field>
@@ -103,8 +114,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.trailingStopPct}
+            value={displayVal(config.trailingStopPct)}
             onChange={(e) => onChange({ trailingStopPct: num(e.target.value) })}
           />
         </Field>
@@ -112,8 +124,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.maxHoldTimeSec}
+            value={displayVal(config.maxHoldTimeSec)}
             onChange={(e) => onChange({ maxHoldTimeSec: num(e.target.value) })}
           />
         </Field>
@@ -121,8 +134,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.maxDevHoldPct}
+            value={displayVal(config.maxDevHoldPct)}
             onChange={(e) => onChange({ maxDevHoldPct: num(e.target.value) })}
           />
         </Field>
@@ -130,8 +144,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.minLiquidityUsd}
+            value={displayVal(config.minLiquidityUsd)}
             onChange={(e) => onChange({ minLiquidityUsd: num(e.target.value) })}
           />
         </Field>
@@ -139,8 +154,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.maxLiquidityUsd}
+            value={displayVal(config.maxLiquidityUsd)}
             onChange={(e) => onChange({ maxLiquidityUsd: num(e.target.value) })}
           />
         </Field>
@@ -148,8 +164,9 @@ export function ConfigPanel({ config, onChange, onSave, saving, disabled }: Prop
           <input
             className={inputClass}
             type="number"
+            placeholder="0"
             disabled={disabled}
-            value={config.maxPositions}
+            value={displayVal(config.maxPositions)}
             onChange={(e) => onChange({ maxPositions: num(e.target.value) })}
           />
         </Field>
