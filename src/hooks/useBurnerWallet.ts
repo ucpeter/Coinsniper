@@ -149,14 +149,23 @@ export function useBurnerWallet() {
 
   const getKeypair = useCallback((id: string): Keypair | null => keypairsRef.current.get(id) ?? null, []);
 
-  const withdrawAll = useCallback(
-    async (id: string, toAddress: string): Promise<string> => {
+  const withdraw = useCallback(
+    async (id: string, toAddress: string, amountSol?: number): Promise<string> => {
       const keypair = keypairsRef.current.get(id);
       if (!keypair) throw new Error("Unlock this trading wallet first");
       const connection = getClientConnection();
       const lamports = await connection.getBalance(keypair.publicKey);
       const FEE_BUFFER = 5000; // lamports reserved for network fee
-      const sendable = lamports - FEE_BUFFER;
+      let sendable: number;
+      if (amountSol === undefined) {
+        sendable = lamports - FEE_BUFFER;
+      } else {
+        if (amountSol <= 0) throw new Error("Enter an amount greater than 0");
+        sendable = Math.round(amountSol * 1e9);
+        if (sendable + FEE_BUFFER > lamports) {
+          throw new Error(`Only ${((lamports - FEE_BUFFER) / 1e9).toFixed(4)} SOL available after fees`);
+        }
+      }
       if (sendable <= 0) throw new Error("Trading wallet balance too low to withdraw");
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
       const tx = new Transaction({
@@ -179,6 +188,9 @@ export function useBurnerWallet() {
     [refreshBalance],
   );
 
+  // Kept for compatibility with anything still calling this name directly.
+  const withdrawAll = useCallback((id: string, toAddress: string) => withdraw(id, toAddress), [withdraw]);
+
   return {
     ...state,
     generate,
@@ -187,6 +199,7 @@ export function useBurnerWallet() {
     forget,
     getKeypair,
     refreshBalance,
+    withdraw,
     withdrawAll,
   };
 }
