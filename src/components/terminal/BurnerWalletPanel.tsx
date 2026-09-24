@@ -27,10 +27,11 @@ function WalletCard({
   onLock: () => void;
   onForget: () => void;
   onFund: (amountSol: number) => Promise<void>;
-  onWithdraw: () => Promise<void>;
+  onWithdraw: (amountSol?: number) => Promise<void>;
 }) {
   const [passphrase, setPassphrase] = useState("");
   const [fundAmount, setFundAmount] = useState("0.2");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -103,9 +104,27 @@ function WalletCard({
             >
               Fund
             </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Amount"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white outline-none focus:border-violet-500"
+            />
             <button
-              disabled={!mainWallet.publicKey || busyAction === "withdraw"}
-              onClick={() => runAction("withdraw", onWithdraw)}
+              disabled={!mainWallet.publicKey || busyAction === "withdraw" || !withdrawAmount}
+              onClick={() => runAction("withdraw", () => onWithdraw(Number(withdrawAmount)))}
+              className="flex-1 rounded-lg border border-slate-700 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-40"
+            >
+              Withdraw
+            </button>
+            <button
+              disabled={!mainWallet.publicKey || busyAction === "withdraw-all"}
+              onClick={() => runAction("withdraw-all", () => onWithdraw())}
               className="flex-1 rounded-lg border border-slate-700 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800 disabled:opacity-40"
             >
               Withdraw all
@@ -173,9 +192,9 @@ export function BurnerWalletPanel({ burner, mainWallet }: { burner: Burner; main
                 await mainWallet.sendSol(w.publicKey, amountSol);
                 await burner.refreshBalance(w.id);
               }}
-              onWithdraw={async () => {
+              onWithdraw={async (amountSol) => {
                 if (!mainWallet.publicKey) return;
-                await burner.withdrawAll(w.id, mainWallet.publicKey);
+                await burner.withdraw(w.id, mainWallet.publicKey, amountSol);
               }}
             />
           ))}
