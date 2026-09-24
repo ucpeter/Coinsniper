@@ -21,17 +21,23 @@ export async function GET(req: Request) {
 
   let blacklisted = false;
   if (walletAddress && devWallet) {
-    const rows = await db
-      .select()
-      .from(blacklistedDevs)
-      .where(
-        and(
-          eq(blacklistedDevs.walletAddress, walletAddress),
-          eq(blacklistedDevs.devWallet, devWallet),
-        ),
-      )
-      .limit(1);
-    blacklisted = rows.length > 0;
+    try {
+      const rows = await db
+        .select()
+        .from(blacklistedDevs)
+        .where(
+          and(
+            eq(blacklistedDevs.walletAddress, walletAddress),
+            eq(blacklistedDevs.devWallet, devWallet),
+          ),
+        )
+        .limit(1);
+      blacklisted = rows.length > 0;
+    } catch {
+      // A database hiccup here shouldn't take down the whole risk check —
+      // fall through and still return a real assessment, just without the
+      // blacklist signal for this one call.
+    }
   }
 
   const assessment = await assessTokenRisk({
