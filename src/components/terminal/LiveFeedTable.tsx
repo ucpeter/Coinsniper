@@ -53,8 +53,11 @@ export function LiveFeedTable({ tokens, feedStatus }: { tokens: ScannedToken[]; 
                 <td className="py-1.5 pr-2">
                   <RiskBadge risk={t.risk} />
                 </td>
-                <td className={`py-1.5 font-medium ${decisionStyles[t.decision]}`} title={t.skipReason}>
-                  {t.decision}
+                <td className={`py-1.5 font-medium ${decisionStyles[t.decision]}`}>
+                  <p>{t.decision}</p>
+                  {t.decision === "skipped" && t.skipReason && (
+                    <p className="text-[10px] font-normal text-slate-600">{t.skipReason}</p>
+                  )}
                 </td>
               </tr>
             ))}
