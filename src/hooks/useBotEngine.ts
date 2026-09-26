@@ -608,10 +608,24 @@ export function useBotEngine({ walletAddress, config, getKeypair, burnerBalanceS
     return () => clearInterval(id);
   }, [executeSell]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (!configRef.current) {
       log("Load or save a configuration before starting the bot.");
       return;
+    }
+    const addr = walletRef.current;
+    if (addr) {
+      try {
+        const res = await fetch(`/api/persistent-bot/status?walletAddress=${addr}`);
+        const data = await res.json();
+        if (data.running) {
+          log("This wallet is already running persistently on the server — stop that first if you want to run it from this tab instead.");
+          return;
+        }
+      } catch {
+        // If the status check itself fails, fall through and allow the
+        // normal in-browser start rather than blocking on a network hiccup.
+      }
     }
     runningRef.current = true;
     setRunning(true);
