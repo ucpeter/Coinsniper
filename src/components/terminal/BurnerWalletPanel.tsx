@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { useBurnerWallet, BurnerWalletSummary } from "@/hooks/useBurnerWallet";
 import type { useMainWallet } from "@/hooks/useMainWallet";
 import { fmtSol, shortAddr } from "@/lib/format";
+import { bytesToBase64 } from "@/lib/txUtils";
 
 type Burner = ReturnType<typeof useBurnerWallet>;
 type MainWallet = ReturnType<typeof useMainWallet>;
@@ -13,21 +14,25 @@ function WalletCard({
   unlocked,
   balanceSol,
   mainWallet,
+  persistentRunning,
   onUnlock,
   onLock,
   onForget,
   onFund,
   onWithdraw,
+  onTogglePersistent,
 }: {
   wallet: BurnerWalletSummary;
   unlocked: boolean;
   balanceSol: number | null;
   mainWallet: MainWallet;
+  persistentRunning: boolean;
   onUnlock: (passphrase: string) => Promise<void>;
   onLock: () => void;
   onForget: () => void;
   onFund: (amountSol: number) => Promise<void>;
   onWithdraw: (amountSol?: number) => Promise<void>;
+  onTogglePersistent: () => Promise<void>;
 }) {
   const [passphrase, setPassphrase] = useState("");
   const [fundAmount, setFundAmount] = useState("0.2");
@@ -51,15 +56,22 @@ function WalletCard({
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-white">{wallet.label}</p>
-        {unlocked ? (
-          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-            UNLOCKED · TRADING
-          </span>
-        ) : (
-          <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
-            LOCKED
-          </span>
-        )}
+        <div className="flex gap-1">
+          {persistentRunning && (
+            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-400">
+              RUNNING ON SERVER
+            </span>
+          )}
+          {unlocked ? (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+              UNLOCKED · TRADING
+            </span>
+          ) : (
+            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+              LOCKED
+            </span>
+          )}
+        </div>
       </div>
       <p className="mt-1 font-mono text-xs text-slate-400">{shortAddr(wallet.publicKey, 6)}</p>
       <p className="text-xs text-slate-500">{fmtSol(balanceSol)}</p>
@@ -130,6 +142,35 @@ function WalletCard({
               Withdraw all
             </button>
           </div>
+          <div>
+            <button
+              disabled={busyAction === "persistent"}
+              onClick={() =>
+                runAction("persistent", async () => {
+                  if (
+                    persistentRunning ||
+                    confirm(
+                      "This sends your decrypted key to the server once, held only in its memory, so trading continues with this tab closed. It stops if you stop it here, or if the server itself restarts. Continue?",
+                    )
+                  ) {
+                    await onTogglePersistent();
+                  }
+                })
+              }
+              className={`w-full rounded-lg border px-2 py-1.5 text-[11px] font-semibold ${
+                persistentRunning
+                  ? "border-sky-700 bg-sky-950/40 text-sky-300 hover:bg-sky-950/60"
+                  : "border-slate-700 text-white hover:bg-slate-800"
+              }`}
+            >
+              {persistentRunning ? "Stop running on server" : "Keep running with this tab closed"}
+            </button>
+            <p className="mt-1 text-[10px] text-slate-600">
+              {persistentRunning
+                ? "Trading continues even if you close this tab. Stop here when you want it to actually stop."
+                : "Sends your key to the server once, held only in memory, so it survives closing this tab."}
+            </p>
+          </div>
           <div className="flex gap-2 text-[11px]">
             <button onClick={onLock} className="flex-1 rounded-lg border border-slate-800 px-2 py-1 text-slate-400 hover:bg-slate-800">
               Lock
@@ -157,8 +198,31 @@ export function BurnerWalletPanel({ burner, mainWallet }: { burner: Burner; main
   const [newPassphrase, setNewPassphrase] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [persistentStatus, setPersistentStatus] = useState<Record<string, boolean>>({});
 
   const noWallets = !burner.hasStored;
+
+  useEffect(() => {
+    if (burner.wallets.length === 0) return;
+    let cancelled = false;
+    const checkAll = () => {
+      burner.wallets.forEach((w) => {
+        fetch(`/api/persistent-bot/status?walletAddress=${w.publicKey}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (!cancelled) setPersistentStatus((prev) => ({ ...prev, [w.id]: Boolean(data.running) }));
+          })
+          .catch(() => {});
+      });
+    };
+    checkAll();
+    const interval = setInterval(checkAll, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [burner.wallets.map((w) => w.id).join(",")]);
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -185,6 +249,7 @@ export function BurnerWalletPanel({ burner, mainWallet }: { burner: Burner; main
               unlocked={burner.unlockedIds.includes(w.id)}
               balanceSol={burner.balances[w.id] ?? null}
               mainWallet={mainWallet}
+              persistentRunning={persistentStatus[w.id] ?? false}
               onUnlock={(passphrase) => burner.unlock(w.id, passphrase)}
               onLock={() => burner.lock(w.id)}
               onForget={() => burner.forget(w.id)}
@@ -195,6 +260,31 @@ export function BurnerWalletPanel({ burner, mainWallet }: { burner: Burner; main
               onWithdraw={async (amountSol) => {
                 if (!mainWallet.publicKey) return;
                 await burner.withdraw(w.id, mainWallet.publicKey, amountSol);
+              }}
+              onTogglePersistent={async () => {
+                const running = persistentStatus[w.id] ?? false;
+                if (running) {
+                  await fetch("/api/persistent-bot/stop", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ walletAddress: w.publicKey }),
+                  });
+                  setPersistentStatus((prev) => ({ ...prev, [w.id]: false }));
+                } else {
+                  const keypair = burner.getKeypair(w.id);
+                  if (!keypair) throw new Error("Unlock this wallet first");
+                  const res = await fetch("/api/persistent-bot/start", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      walletAddress: w.publicKey,
+                      secretKeyBase64: bytesToBase64(keypair.secretKey),
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || "Failed to start");
+                  setPersistentStatus((prev) => ({ ...prev, [w.id]: true }));
+                }
               }}
             />
           ))}
