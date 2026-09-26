@@ -1,3 +1,5 @@
+import { buildTrade } from "@/lib/tradeBuilder";
+
 export const dynamic = "force-dynamic";
 
 interface BuildBody {
@@ -23,33 +25,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const upstream = await fetch("https://pumpportal.fun/api/trade-local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        publicKey: body.publicKey,
-        action: body.action,
-        mint: body.mint,
-        amount: body.amount,
-        denominatedInSol: body.denominatedInSol ? "true" : "false",
-        slippage: body.slippage,
-        priorityFee: body.priorityFee,
-        pool: body.pool === "raydium" ? "raydium" : body.pool === "auto" ? "auto" : "pump",
-      }),
-    });
-
-    if (upstream.status !== 200) {
-      const message = await upstream.text();
-      return Response.json({ error: message || "Failed to build transaction" }, { status: 502 });
-    }
-
-    const buf = await upstream.arrayBuffer();
-    const base64 = Buffer.from(buf).toString("base64");
-    return Response.json({ transaction: base64 });
+    const transaction = await buildTrade(body);
+    return Response.json({ transaction });
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Trade build failed" },
       { status: 502 },
     );
   }
-        }
+}
