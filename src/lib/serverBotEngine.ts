@@ -7,10 +7,11 @@ import { getServerConnection } from "./solanaServer";
 import { buildTrade } from "./tradeBuilder";
 import { prepareForFastLane, broadcastSigned, readFastLaneConfig } from "./fastSend";
 import { assessTokenRisk } from "./riskCheck";
-import { base64ToBytes } from "./txUtils";
+import { base64ToBytes, pollForConfirmation } from "./txUtils";
 import { PUMP_FUN_TOTAL_SUPPLY, type BotConfig, type PumpPortalNewTokenEvent, type PumpPortalTradeEvent } from "./types";
 
 const RISK_THRESHOLD: Record<BotConfig["riskTolerance"], number> = { low: 70, medium: 50, high: 30 };
+const FEE_BUFFER_SOL = 0.006; // same buffer the browser engine uses before attempting a buy
 
 // This engine exists specifically so a wallet keeps trading with zero
 // browser tabs open. Everything it needs — the keypair, the config, open
@@ -24,6 +25,14 @@ const RISK_THRESHOLD: Record<BotConfig["riskTolerance"], number> = { low: 70, me
 // then requires reconnecting and unlocking again. That's a deliberate
 // limit, not a bug: persisting the raw key anywhere durable would be a
 // materially worse security decision than accepting that limit.
+//
+// Every buy and sell here is verified with an actual on-chain confirmation
+// check (pollForConfirmation) before anything is recorded as successful.
+// Submitting a transaction returns a signature immediately regardless of
+// whether it will ultimately succeed — skipPreflight submissions in
+// particular will happily return a signature for a transaction that's
+// about to fail on-chain — so a signature alone is never treated as proof
+// a trade happened.
 
 interface OpenPosition {
   id: number;
@@ -49,6 +58,7 @@ interface RunningBot {
   unsubscribeFeed: () => void;
   timeoutWatchdog: ReturnType<typeof setInterval>;
   configRefresh: ReturnType<typeof setInterval>;
+  heartbeat: ReturnType<typeof setInterval>;
 }
 
 const globalForBots = globalThis as typeof globalThis & {
@@ -66,6 +76,10 @@ export function isRunningPersistently(walletAddress: string): boolean {
 
 export function listRunningWallets(): string[] {
   return [...registry().keys()];
+}
+
+function tag(walletAddress: string): string {
+  return `[persistent-bot ${walletAddress.slice(0, 8)}]`;
 }
 
 // --- SOL/USD price, same 20s cache pattern as /api/sol-price ---
@@ -184,6 +198,30 @@ async function executeBuy(bot: RunningBot, evt: PumpPortalNewTokenEvent, amountS
       pool: bot.config.pool,
     });
     const signature = await signAndSend(bot, unsignedTx);
+
+    // A signature back from broadcast means "submitted," not "succeeded" —
+    // skipPreflight submissions in particular will return one even for a
+    // transaction that's about to fail on-chain. Only an actual
+    // confirmation means the buy really happened.
+    const { confirmed, error } = await pollForConfirmation(getServerConnection(), signature);
+    if (!confirmed) {
+      console.error(`${tag(bot.walletAddress)} BUY FAILED for ${evt.symbol}: ${error}`);
+      await db.insert(trades).values({
+        walletAddress: bot.walletAddress,
+        mint: evt.mint,
+        symbol: evt.symbol,
+        side: "buy",
+        amountSol: String(amountSol),
+        tokenAmount: "0",
+        priceSol: "0",
+        txSignature: signature,
+        status: "failed",
+        paperTrading: bot.config.paperTrading,
+        errorMessage: error ?? "Buy did not confirm on-chain",
+      });
+      return;
+    }
+
     const entryPriceSol = evt.vSolInBondingCurve / evt.vTokensInBondingCurve;
     const tokenAmount = amountSol / entryPriceSol;
 
@@ -239,7 +277,12 @@ async function executeBuy(bot: RunningBot, evt: PumpPortalNewTokenEvent, amountS
     });
 
     getServerFeed().subscribeTokenTrade([evt.mint]);
+    console.log(
+      `${tag(bot.walletAddress)} BOUGHT ${evt.symbol} (${evt.mint.slice(0, 8)}…) — ${amountSol.toFixed(4)} SOL, risk ${riskScore ?? "n/a"}, tx ${signature.slice(0, 12)}…`,
+    );
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Buy failed";
+    console.error(`${tag(bot.walletAddress)} BUY FAILED for ${evt.symbol}: ${message}`);
     await db.insert(trades).values({
       walletAddress: bot.walletAddress,
       mint: evt.mint,
@@ -250,7 +293,7 @@ async function executeBuy(bot: RunningBot, evt: PumpPortalNewTokenEvent, amountS
       priceSol: "0",
       status: "failed",
       paperTrading: bot.config.paperTrading,
-      errorMessage: err instanceof Error ? err.message : "Buy failed",
+      errorMessage: message,
     });
   } finally {
     bot.inFlight.delete(evt.mint);
@@ -277,6 +320,30 @@ async function executeSell(
       pool: bot.config.pool,
     });
     const signature = await signAndSend(bot, unsignedTx);
+    const { confirmed, error } = await pollForConfirmation(getServerConnection(), signature);
+
+    if (!confirmed) {
+      // Not actually sold — put it back so it keeps being watched, and
+      // record what really happened instead of a fabricated "confirmed".
+      bot.openPositions.set(position.mint, position);
+      console.error(`${tag(bot.walletAddress)} SELL FAILED for ${position.symbol}: ${error}`);
+      await db.insert(trades).values({
+        walletAddress: bot.walletAddress,
+        positionId: position.id,
+        mint: position.mint,
+        symbol: position.symbol,
+        side: "sell",
+        amountSol: "0",
+        tokenAmount: String(position.tokenAmount),
+        priceSol: String(currentPriceSol),
+        txSignature: signature,
+        status: "failed",
+        paperTrading: bot.config.paperTrading,
+        errorMessage: error ?? "Sell did not confirm on-chain",
+      });
+      return;
+    }
+
     const exitSol = position.tokenAmount * currentPriceSol;
     const realizedPnlSol = exitSol - position.entryAmountSol;
     const realizedPnlPct = (realizedPnlSol / position.entryAmountSol) * 100;
@@ -307,7 +374,11 @@ async function executeSell(
       status: "confirmed",
       paperTrading: bot.config.paperTrading,
     });
+    console.log(
+      `${tag(bot.walletAddress)} SOLD ${position.symbol} (${reason}) — PnL ${realizedPnlSol.toFixed(4)} SOL (${realizedPnlPct.toFixed(1)}%), tx ${signature.slice(0, 12)}…`,
+    );
   } catch (err) {
+    console.error(`${tag(bot.walletAddress)} SELL FAILED for ${position.symbol}: ${err instanceof Error ? err.message : "Sell failed"}`);
     // Put the position back — the sell attempt failed, so it's still open
     // and should keep being watched rather than silently disappearing.
     bot.openPositions.set(position.mint, position);
@@ -367,6 +438,22 @@ async function evaluateNewToken(bot: RunningBot, evt: PumpPortalNewTokenEvent) {
   }
 
   const amountSol = Math.min(cfg.maxAmountSol, Math.max(cfg.minAmountSol, sizeForRisk(cfg, riskScore ?? 60)));
+
+  // Same pre-check the browser engine does before ever attempting a buy —
+  // this is the piece that was missing here, which is what let the engine
+  // "buy" tokens with no real SOL to buy them with.
+  try {
+    const lamports = await getServerConnection().getBalance(bot.keypair.publicKey);
+    const balanceSol = lamports / 1e9;
+    if (balanceSol < amountSol + FEE_BUFFER_SOL) {
+      console.log(`${tag(bot.walletAddress)} skip buy — balance too low (${balanceSol.toFixed(4)} SOL)`);
+      return;
+    }
+  } catch {
+    // Can't verify balance right now — safer to skip this one than buy blind.
+    return;
+  }
+
   await executeBuy(bot, evt, amountSol, riskScore);
 }
 
@@ -431,6 +518,9 @@ export async function startPersistentBot(walletAddress: string, keypair: Keypair
         })
         .catch(() => {});
     }, 30_000),
+    heartbeat: setInterval(() => {
+      console.log(`${tag(walletAddress)} alive — ${bot.openPositions.size} open position(s), watching the feed`);
+    }, 5 * 60_000),
   };
 
   bot.unsubscribeFeed = feed.onEvent((event) => {
@@ -450,6 +540,7 @@ export async function startPersistentBot(walletAddress: string, keypair: Keypair
     .update(botConfigs)
     .set({ isRunning: true, updatedAt: new Date() })
     .where(eq(botConfigs.walletAddress, walletAddress));
+  console.log(`${tag(walletAddress)} STARTED — ${openPositions.size} open position(s) loaded from the database`);
 }
 
 export async function stopPersistentBot(walletAddress: string): Promise<void> {
@@ -458,8 +549,10 @@ export async function stopPersistentBot(walletAddress: string): Promise<void> {
     bot.unsubscribeFeed();
     clearInterval(bot.timeoutWatchdog);
     clearInterval(bot.configRefresh);
+    clearInterval(bot.heartbeat);
     registry().delete(walletAddress);
     getServerFeed().disconnectIfIdle();
+    console.log(`${tag(walletAddress)} STOPPED`);
   }
   await db
     .update(botConfigs)
